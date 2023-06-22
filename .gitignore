@@ -134,3 +134,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# Checkpoints
+/users/zboucher/iris/src/models/tokenizer/checkpoints/
+
+
