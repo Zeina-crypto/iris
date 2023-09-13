@@ -40,7 +40,7 @@ class Head(Slicer):
         x_sliced = x[:, self.compute_slice(num_steps, prev_steps)]  # x is (B, T, E)
         return self.head_module(x_sliced)
 
-## I just commwnt the assert as I dont have more than 1 embeeding table I have only observations no rewards or actions 
+## I just comment the assert as I dont have more than 1 embeeding table I have only observations no rewards or actions 
 class Embedder(nn.Module):
     def __init__(self, max_blocks: int, block_masks: List[torch.Tensor], embedding_tables: List[nn.Embedding]) -> None:
         super().__init__()

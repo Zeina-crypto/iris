@@ -61,6 +61,17 @@ class WorldModel(nn.Module):
                 nn.Linear(config.embed_dim, 2)
             )
         )
+
+        self.head_classification = Head(
+            max_blocks=config.max_blocks,
+            block_mask=ends_tokens_pattern,
+            head_module=nn.Sequential(
+                nn.Linear(config.embed_dim, config.embed_dim),
+                nn.ReLU(),
+                nn.Linear(config.embed_dim, 2)
+            )
+        )
+
         self.apply(init_weights)
            
 
@@ -80,10 +91,14 @@ class WorldModel(nn.Module):
         x = self.transformer(sequences, past_keys_values)
         logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=prev_steps)
         logits_ends = self.head_ends(x, num_steps=num_steps, prev_steps=prev_steps)
+        logits_classification = self.head_classification(x, num_steps=num_steps, prev_steps=prev_steps)
+        
         print("x world", x.size())
         print("logit_obs", logits_observations.size())
         print("logit_end", logits_ends.size())
-        return WorldModelOutput(x, logits_observations, logits_ends)
+        print("logit_classification", logits_classification.size())
+        
+        return WorldModelOutput(x, logits_observations, logits_ends, logits_classification)
     
     def compute_loss(self, batch: Batch, tokenizer: Tokenizer, **kwargs: Any) -> LossWithIntermediateLosses:
         
@@ -100,13 +115,15 @@ class WorldModel(nn.Module):
         print("output_sequence size:", outputs.output_sequence.size())
         print("logits_observations size:", outputs.logits_observations.size())
         print("logits_ends size:", outputs.logits_ends.size())
+        print("logits_classification size:", outputs.logits_classification.size())
         #labels_observations, labels_ends = self.compute_labels_world_model(obs_tokens, batch['ends'], batch['mask_padding'])
 
         #logits_observations = rearrange(outputs.logits_observations[:, :-1], 'b t o -> (b t) o')
         #loss_obs = F.cross_entropy(logits_observations,labels_observations)
         #loss_ends = F.cross_entropy(rearrange(outputs.logits_ends, 'b t e -> (b t) e'), labels_ends)
+        loss_classification = F.cross_entropy(outputs.logits_observations, outputs.logits_classification)
         #print("Cross entropy Losses", #loss_obs)
-        return outputs.output_sequence, outputs.logits_observations, outputs.logits_ends
+        return outputs.output_sequence, outputs.logits_observations, outputs.logits_ends, outputs.logits_classification
         #return LossWithIntermediateLosses(loss_obs=loss_obs,loss_ends=loss_ends)
     
     def compute_labels_world_model(self, obs_tokens: torch.Tensor, ends: torch.Tensor, mask_padding: torch.BoolTensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
