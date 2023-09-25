@@ -22,7 +22,7 @@ from episode import Episode
 from make_reconstructions import make_reconstructions_from_batch
 from models.actor_critic import ActorCritic
 from models.world_model import WorldModel
-from utils import configure_optimizer, EpisodeDirManager, set_seed
+from utils import configure_optimizer, EpisodeDirManager, set_seed, compute_metrics
 
 
 class Trainer:
@@ -122,6 +122,7 @@ class Trainer:
                         i=index
                     #to_log += self.train_collector.collect_training_data()
                         to_log = self.train_agent(batch)
+                        metrics_pysteps = compute_metrics(batch['observations'], batch['reconstructions'])
 
     #         if self.cfg.evaluation.should and (epoch % self.cfg.evaluation.every == 0):
     #             self.test_dataset.clear()
@@ -131,9 +132,10 @@ class Trainer:
     #         if self.cfg.training.should:
     #             self.save_checkpoint(epoch, save_agent_only=not self.cfg.common.do_checkpoint)
 
+
             to_log.append({'duration': (time.time() - start_time) / 3600})
             for metrics in to_log:
-                wandb.log({'epoch': epoch, **metrics})
+                wandb.log({'epoch': epoch, **metrics, **metrics_pysteps})
 
         self.finish()
 
