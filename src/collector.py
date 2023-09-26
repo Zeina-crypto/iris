@@ -12,15 +12,10 @@ from agent import Agent
 from dataset import EpisodesDataset
 from envs import SingleProcessEnv, MultiProcessEnv
 from episode import Episode
-from utils import EpisodeDirManager, RandomHeuristic
-
-from agent import Agent
-from dataset import EpisodesDataset
-from envs import SingleProcessEnv, MultiProcessEnv
-from episode import Episode
 from utils import EpisodeDirManager
-
 from PIL import Image
+import torch.nn.functional as F
+
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from torch.cuda.amp import autocast
@@ -55,70 +50,90 @@ class Collector:
 
 
 
-    def collect_data(self): 
-        root_dir = '/home/hbi/RAD_NL25_RAP_5min/' 
-    
+    # def collect_data(self): 
+        # root_dir = '/home/hbi/RAD_NL25_RAP_5min/' 
+    # 
 
-        df_train = pd.read_csv('/space/zboucher/World_Model/catchment/training_Delfland08-14_20.csv', header=None)
-        event_times = df_train[0].to_list()
-        dataset_train = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_train = pd.read_csv('/space/zboucher/World_Model/catchment/training_Delfland08-14_20.csv', header=None)
+        # event_times = df_train[0].to_list()
+        # dataset_train = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_train_s = pd.read_csv('/space/zboucher/World_Model/catchment/training_Delfland08-14.csv', header=None)
-        event_times = df_train_s[0].to_list()
-        dataset_train_del = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_train_s = pd.read_csv('/space/zboucher/World_Model/catchment/training_Delfland08-14.csv', header=None)
+        # event_times = df_train_s[0].to_list()
+        # dataset_train_del = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_test = pd.read_csv('/space/zboucher/World_Model/catchment/testing_Delfland18-20.csv', header=None)
-        event_times = df_test[0].to_list()
-        dataset_test = radarDataset(root_dir, event_times,self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_test = pd.read_csv('/space/zboucher/World_Model/catchment/testing_Delfland18-20.csv', header=None)
+        # event_times = df_test[0].to_list()
+        # dataset_test = radarDataset(root_dir, event_times,self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_vali = pd.read_csv('/space/zboucher/World_Model/catchment/validation_Delfland15-17.csv', header=None)
-        event_times = df_vali[0].to_list()
-        dataset_vali = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_vali = pd.read_csv('/space/zboucher/World_Model/catchment/validation_Delfland15-17.csv', header=None)
+        # event_times = df_vali[0].to_list()
+        # dataset_vali = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_train_aa = pd.read_csv('/space/zboucher/World_Model/catchment/training_Aa08-14.csv', header=None)
-        event_times = df_train_aa[0].to_list()
-        dataset_train_aa = radarDataset(root_dir, event_times,self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_train_aa = pd.read_csv('/space/zboucher/World_Model/catchment/training_Aa08-14.csv', header=None)
+        # event_times = df_train_aa[0].to_list()
+        # dataset_train_aa = radarDataset(root_dir, event_times,self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_train_dw = pd.read_csv('/space/zboucher/World_Model/catchment/training_Dwar08-14.csv', header=None)
-        event_times = df_train_dw[0].to_list()
-        dataset_train_dw = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_train_dw = pd.read_csv('/space/zboucher/World_Model/catchment/training_Dwar08-14.csv', header=None)
+        # event_times = df_train_dw[0].to_list()
+        # dataset_train_dw = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        df_train_re = pd.read_csv('/space/zboucher/World_Model/catchment/training_Regge08-14.csv', header=None)
-        event_times = df_train_re[0].to_list()
-        dataset_train_re = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
+        # df_train_re = pd.read_csv('/space/zboucher/World_Model/catchment/training_Regge08-14.csv', header=None)
+        # event_times = df_train_re[0].to_list()
+        # dataset_train_re = radarDataset(root_dir, event_times, self.obs_time, self.pred_time, self.time_interval, transform=Compose([ToTensor()]))
 
-        data_list = [dataset_train_aa, dataset_train_dw, dataset_train_del, dataset_train_re]
-        train_aadedwre = torch.utils.data.ConcatDataset(data_list)
+        # data_list = [dataset_train_aa, dataset_train_dw, dataset_train_del, dataset_train_re]
+        # train_aadedwre = torch.utils.data.ConcatDataset(data_list)
 
-        print(len(dataset_train), len(dataset_test), len(dataset_vali))
-        loaders = {'train': DataLoader(train_aadedwre, batch_size=1, shuffle=True, num_workers=8),
-                    'test': DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=8),
-                    'valid': DataLoader(dataset_vali, batch_size=1, shuffle=False, num_workers=8),
+        # print(len(dataset_train), len(dataset_test), len(dataset_vali))
+        # loaders = {'train': DataLoader(train_aadedwre, batch_size=1, shuffle=True, num_workers=8),
+                    # 'test': DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=8),
+                    # 'valid': DataLoader(dataset_vali, batch_size=1, shuffle=False, num_workers=8),
 
-                    'train_aa5': DataLoader(dataset_train_aa, batch_size=1, shuffle=False, num_workers=8),
-                    'train_dw5': DataLoader(dataset_train_dw, batch_size=1, shuffle=False, num_workers=8),
-                    'train_del5': DataLoader(dataset_train_del, batch_size=1, shuffle=True, num_workers=8),
-                    'train_re5': DataLoader(dataset_train_re, batch_size=1, shuffle=False, num_workers=8),}
-        return loaders, len(dataset_train), len(dataset_test), len(dataset_vali)
-    
+                    # 'train_aa5': DataLoader(dataset_train_aa, batch_size=1, shuffle=False, num_workers=8),
+                    # 'train_dw5': DataLoader(dataset_train_dw, batch_size=1, shuffle=False, num_workers=8),
+                    # 'train_del5': DataLoader(dataset_train_del, batch_size=1, shuffle=True, num_workers=8),
+                    # 'train_re5': DataLoader(dataset_train_re, batch_size=1, shuffle=False, num_workers=8),}
+        # return loaders, len(dataset_train), len(dataset_test), len(dataset_vali)
+
+    class CustomDataset(Dataset):
+        def __init__(self, file_path):
+            self.data = torch.tensor(np.load(file_path), dtype=torch.float32)
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def __getitem__(self, index):
+            sample = self.data[index]
+            return sample
+        
     def collect_training_data(self):
-        loaders_train = train_loader
-        length = len(loaders_train)
-
-        # training_samples=[]
-        # loaders=self.collect_data()
-        # num_samples=1
-        # for i, images in enumerate(loaders['train']):
-        #     if num_samples >= 50: 
-        #          break 
-            
-        #     image = images.view(1,16,256,256)
-        #     #image= image.squeeze(-1)
-        #     self.training_data.append(image)
-        #     num_samples=num_samples+1
-        #     length= len(self.training_data)
+        # Paths to your numpy array files
+        train_file_path = '/space/zboucher/Data/all_data_train.npy'
+        train_dataset = self.CustomDataset(train_file_path)
+        loaders_train = DataLoader(train_dataset, batch_size=1, shuffle=True)
+        length= len(train_dataset)
 
         return loaders_train, length
+    
+    def collect_testing_data(self):
+        # Paths to your numpy array files
+        test_file_path = '/space/zboucher/Data/all_data_test.npy'
+        test_dataset = self.CustomDataset(test_file_path)
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+        length=len(test_dataset)
+
+        return test_loader, length
+    
+    def collect_validation_data(self):
+        vali_file_path = '/space/ankushroy/Data/all_data_vali.npy'
+
+        vali_dataset = self.CustomDataset(vali_file_path)
+        vali_loader = DataLoader(vali_dataset, batch_size=1, shuffle=False)
+        length= len(vali_dataset)
+        return vali_loader, length
+    
+    
             
     def get_next_batch(self,epoch, batch_size, start_index, training_data):
         self.training_data= training_data
@@ -127,11 +142,11 @@ class Collector:
         end_index= start_index + batch_size
         self.epoch= epoch
         training_batch=[]
-
+        
         for i, images in enumerate(training_data, start= start_index):
             if i >= end_index:
                 break
-            image = images.view(1,self.length,256,256)
+            image = images.view(self.length,1,128,128)
             # image= image.unsqueeze(-1)
             training_batch.append(image)
 
@@ -139,15 +154,17 @@ class Collector:
         
         current_index = end_index
         self.episode_ids = [None] * self.env.num_envs
-        self.process_and_add_episodes(batch, current_index, epoch)
+        self.process_and_add_episodes(batch, batch_size, epoch, len(training_data))
             
         return batch, current_index 
 
-    def process_and_add_episodes(self, batch, index, epoch):
+    def process_and_add_episodes(self, batch, batch_size, epoch, length):
         # Assuming you have the logic to process episodes here
         # Extract observations, actions, rewards, dones, etc.
+        batch_size = batch_size
+        length_data = length 
         if self.batch_counter_10 < 10:
-            episode_tensor = torch.cat(batch, dim=0)
+            episode_tensor = torch.cat(batch, dim=1)
             # for o in observations:
             #o = torch.tensor(batch)
             episode = Episode(
@@ -157,16 +174,19 @@ class Collector:
                 self.episode_ids[self.batch_counter_10] = self.dataset.add_episode(episode)
                 self.episode_dir_manager.save(episode, self.batch_counter, epoch)
                 
-            # else:
-            #     self.dataset.update_episode(self.episode_ids[index], episode)
-            #            self.first_10_batch_counter += 1
+            else:
+                self.dataset.update_episode(self.episode_ids[index], episode)
+                self.first_10_batch_counter += 1
         
         # Reset the first_10_batch_counter to 0 if it exceeds 10
             if self.batch_counter_10>= 10:
                 self.batch_counter_10= 0
                 
                 # Increment the batch_counter for the whole batches
-            self.batch_counter += 1
+            self.batch_counter_10 += 1
+            if self.batch_counter == (length_data/batch_size): 
+                self.batch_counter=0
+            
 
 
 # Correct
@@ -204,9 +224,20 @@ class radarDataset(Dataset):
             image = image/40
             #image = 2*image-1 #normalize to [-1,1]
             output.append(image)
-        output = torch.permute(torch.tensor(np.array(output)), (1, 2, 0))
+        output = torch.tensor((np.array(output)), dtype = torch.float32)
+ # Reshape tensor to include a batch dimension (B, C, H, W)
+        output = output.unsqueeze(0)
+        # Resize tensor using F.interpolate
+        output = F.interpolate(output, size=(128, 128), mode='bilinear', align_corners=False)
+        # Remove batch dimension
+        output = torch.squeeze(output, 0)
+        # Permute and transform
+        output = torch.permute(output, (1, 2, 0))
         output = self.transform(np.array(output))
         return output
+       
+       
+        
 
 def eventGeneration(start_time, obs_time ,lead_time, time_interval):
 # Generate event based on starting time point, return a list: [[t-4,...,t-1,t], [t+1,...,t+72]]
