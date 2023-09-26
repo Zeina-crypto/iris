@@ -33,11 +33,6 @@ import numpy as np
 from torchvision.transforms import ToTensor, Compose, CenterCrop
 
 
-
-
-
-
-
 class Collector: 
 
     def __init__(self, env: Union[SingleProcessEnv, MultiProcessEnv], dataset: EpisodesDataset, episode_dir_manager: EpisodeDirManager, obs_time, pred_time, time_interval):
@@ -107,9 +102,9 @@ class Collector:
         return loaders, len(dataset_train), len(dataset_test), len(dataset_vali)
     
     def collect_training_data(self):
-        loaders, length_train, length_test, length_val = self.collect_data()
-        loaders_train = loaders['train']
-        length = length_train
+        loaders_train = train_loader
+        length = len(loaders_train)
+
         # training_samples=[]
         # loaders=self.collect_data()
         # num_samples=1
@@ -358,3 +353,28 @@ def eventGeneration(start_time, obs_time ,lead_time, time_interval):
 #                 self.episode_ids[i] = self.dataset.add_episode(episode)
 #             else:
 #                 self.dataset.update_episode(self.episode_ids[i], episode)
+class CustomDataset(Dataset):
+    def __init__(self, file_path):
+        self.data = torch.tensor(np.load(file_path), dtype=torch.float32)
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, index):
+        sample = self.data[index]
+        return sample
+
+# Paths to your numpy array files
+train_file_path = '/space/ankushroy/Data/all_data_train.npy'
+test_file_path = '/space/ankushroy/Data/all_data_test.npy'
+vali_file_path = '/space/ankushroy/Data/all_data_vali.npy'
+
+# Create instances of the dataset for training, testing, and validation
+train_dataset = CustomDataset(train_file_path)
+test_dataset = CustomDataset(test_file_path)
+vali_dataset = CustomDataset(vali_file_path)
+
+# Create DataLoaders for each dataset
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+vali_loader = DataLoader(vali_dataset, batch_size=1, shuffle=False)
