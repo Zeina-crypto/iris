@@ -109,7 +109,7 @@ class Collector:
         
     def collect_training_data(self):
         # Paths to your numpy array files
-        train_file_path = '/space/zboucher/Data/all_data_train.npy'
+        train_file_path = '/space/ankushroy/Data/all_data_train.npy'
         train_dataset = self.CustomDataset(train_file_path)
         loaders_train = DataLoader(train_dataset, batch_size=1, shuffle=True)
         length= len(train_dataset)
@@ -118,7 +118,7 @@ class Collector:
     
     def collect_testing_data(self):
         # Paths to your numpy array files
-        test_file_path = '/space/zboucher/Data/all_data_test.npy'
+        test_file_path = '/space/ankushroy/Data/all_data_test.npy'
         test_dataset = self.CustomDataset(test_file_path)
         test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
         length=len(test_dataset)

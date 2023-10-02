@@ -164,49 +164,44 @@ def make_video(fname, fps, frames):
     video.release()
 
 
-def compute_metrics (input_images, reconstruction):
-    threshold = 0.0
-    input_images = rearrange(input_images, 'b s h w -> (bs) h w')
-    reconstruction = rearrange(reconstruction, 'b s h w -> (bs) h w')
-    metrics_pysteps = {}
-    pcc_average = 0.0
-    # input images and reconstruction/prediction images should be of the same shape to perform the below operation
-    for i in range(input_images.shape[0]):   #input images of shape [256, 256] for pysteps evaluation
-        a_display = input_images[i].to('cpu').detach().numpy()*40
-        ar_display = reconstruction[i].to('cpu').detach().numpy()*40
-        ar_display[ar_display < threshold] = 0.0
+# def compute_metrics (input_images, reconstruction):
+#     #threshold = 0.0
+#     input_images = rearrange(input_images, 'b s h w -> (bs) h w')
+#     reconstruction = rearrange(reconstruction, 'b s h w -> (bs) h w')
+#     metrics_pysteps = {}
+#     pcc_average = 0.0
+#     # input images and reconstruction/prediction images should be of the same shape to perform the below operation
+    
+#     for i in range(input_images.shape[0]):   #input images of shape [128, 128] for pysteps evaluation
+#         a_display = input_images[i].to('cpu').detach().numpy()*40
+#         ar_display = reconstruction[i].to('cpu').detach().numpy()*40
+#         #ar_display[ar_display < threshold] = 0.0   
         
-        scores_cat1 = det_cat_fct(ar_display, a_display, 1)
-        scores_cat2 = det_cat_fct(ar_display, a_display, 2)
-        scores_cat8 = det_cat_fct(ar_display, a_display, 8)
-        scores_cont = det_cont_fct(ar_display, a_display, thr=0.1)
+#         scores_cat1 = det_cat_fct(ar_display, a_display, 1)
+#         scores_cat2 = det_cat_fct(ar_display, a_display, 2)
+#         scores_cat8 = det_cat_fct(ar_display, a_display, 8)
+#         scores_cont = det_cont_fct(ar_display, a_display, thr=0.1)
         
-        scores_spatial = intensity_scale(ar_display, a_display, 'FSS', 0.1, [1,10,20,30])
-        pcc_average += float(np.around(scores_cont['corr_p'],3))
+#         scores_spatial = intensity_scale(ar_display, a_display, 'FSS', 0.1, [1,10,20,30])
+#         pcc_average += float(np.around(scores_cont['corr_p'],3))
         
-        metrics_pysteps = {'MSE:': np.around(scores_cont['MSE'],3), 
-                    'MAE:': np.around(scores_cont['MAE'],3), 
-                    'PCC:': np.around(scores_cont['corr_p'],3), 
-                    'CSI(1mm):': np.around(scores_cat1['CSI'],3),   # CSI: TP/(TP+FP+FN)
-                    'CSI(2mm):': np.around(scores_cat2['CSI'],3),
-                    'CSI(8mm):': np.around(scores_cat8['CSI'],3),
-                    'ACC(1mm):': np.around(scores_cat1['ACC'],3),   # ACC: (TP+TF)/(TP+TF+FP+FN)
-                    'ACC(2mm):': np.around(scores_cat2['ACC'],3),
-                    'ACC(8mm):': np.around(scores_cat8['ACC'],3),
-                    'FSS(1km):': np.around(scores_spatial[0][0],3),
-                    'FSS(10km):': np.around(scores_spatial[1][0],3),
-                    'FSS(20km):': np.around(scores_spatial[2][0],3),
-                    'FSS(30km):': np.around(scores_spatial[3][0],3),
-                    'pcc_average': pcc_average/i,
-            }
-        plt.figure(figsize=(16, 4))
-        plt.subplot(131)
-        plot_precip_field(a_display, title="Input")
-        plt.subplot(132)
-        plot_precip_field(ar_display, title="Reconstruction/Prediction")
-        plt.tight_layout()
+#         metrics_pysteps = {'MSE:': np.around(scores_cont['MSE'],3), 
+#                     'MAE:': np.around(scores_cont['MAE'],3), 
+#                     'PCC:': np.around(scores_cont['corr_p'],3), 
+#                     'CSI(1mm):': np.around(scores_cat1['CSI'],3),   # CSI: TP/(TP+FP+FN)
+#                     'CSI(2mm):': np.around(scores_cat2['CSI'],3),
+#                     'CSI(8mm):': np.around(scores_cat8['CSI'],3),
+#                     'ACC(1mm):': np.around(scores_cat1['ACC'],3),   # ACC: (TP+TF)/(TP+TF+FP+FN)
+#                     'ACC(2mm):': np.around(scores_cat2['ACC'],3),
+#                     'ACC(8mm):': np.around(scores_cat8['ACC'],3),
+#                     'FSS(1km):': np.around(scores_spatial[0][0],3),
+#                     'FSS(10km):': np.around(scores_spatial[1][0],3),
+#                     'FSS(20km):': np.around(scores_spatial[2][0],3),
+#                     'FSS(30km):': np.around(scores_spatial[3][0],3),
+#                     'pcc_average': pcc_average/i,
+#             }
         
-    return metrics_pysteps   
+#     return metrics_pysteps   
 
 
 

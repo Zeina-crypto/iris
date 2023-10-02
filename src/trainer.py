@@ -22,7 +22,7 @@ from episode import Episode
 from make_reconstructions import make_reconstructions_from_batch
 #from models.actor_critic import ActorCritic
 from models.world_model import WorldModel
-from utils import configure_optimizer, EpisodeDirManager, set_seed, compute_metrics
+from utils import configure_optimizer, EpisodeDirManager, set_seed
 
 
 class Trainer:
@@ -139,7 +139,7 @@ class Trainer:
 
             to_log.append({'duration': (time.time() - start_time) / 3600})
             for metrics in to_log:
-                wandb.log({'epoch': epoch, **metrics, **metrics_pysteps})
+                wandb.log({'epoch': epoch, **metrics})
 
         self.finish()
 
@@ -255,6 +255,7 @@ class Trainer:
                 test_data_index =index
                 metrics_tokenizer, loss_test = self.eval_component(self.agent.tokenizer, cfg_tokenizer.batch_num_samples, loss_total_test_epoch, sequence_length=self.cfg.common.sequence_length)
                 loss_total_test_epoch = loss_test 
+            
             # loss_total_test_epoch = loss_test/ (nb_test_batches_per_epoch + 1)
             # _, index =self.test_collector.get_next_batch(epoch, self.batch_size, test_data_index, testing_data)
             # metrics_tokenizer, loss_test = self.eval_component(self.agent.tokenizer, cfg_tokenizer.batch_num_samples, loss_total_test_epoch, sequence_length=self.cfg.common.sequence_length)
