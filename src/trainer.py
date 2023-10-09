@@ -19,7 +19,7 @@ from agent import Agent
 from collector import Collector
 from envs import SingleProcessEnv, MultiProcessEnv
 from episode import Episode
-from make_reconstructions import make_reconstructions_from_batch
+from make_reconstructions import make_reconstructions_from_batch, generate_reconstructions_with_tokenizer, compute_metrics
 #from models.actor_critic import ActorCritic
 from models.world_model import WorldModel
 from utils import configure_optimizer, EpisodeDirManager, set_seed
@@ -283,6 +283,7 @@ class Trainer:
     @torch.no_grad()
     def eval_component(self, component: nn.Module, batch_num_samples: int, loss_total_test_epoch, sequence_length: int, **kwargs_loss: Any) -> Dict[str, float]:
         intermediate_losses = defaultdict(float)
+        pysteps_metrics = defaultdict(float)
 
         steps = 0
         #pbar = tqdm(desc=f"Evaluating {str(component)}", file=sys.stdout)
@@ -297,10 +298,13 @@ class Trainer:
                 intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
 
             steps += 1
-            #pbar.update(1)
+            # Pysteps evaluation metrics
+            rec_frames = generate_reconstructions_with_tokenizer(batch_test, component)
+            pysteps_metrics = compute_metrics(batch_test, rec_frames)
 
         intermediate_losses = {k: v / steps for k, v in intermediate_losses.items()}
         metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+        metrics['image_metrics'] = pysteps_metrics
         return metrics, loss_total_test_epoch
 
     # @torch.no_grad()

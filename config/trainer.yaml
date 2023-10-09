@@ -7,7 +7,7 @@ defaults:
   - datasets: default
 
 wandb:
-  mode: disabled # online 
+  mode: online #disabled  
   project: iris
   entity: null
   name: null
@@ -23,7 +23,7 @@ initialization:
 
 common:
   epochs: 200
-  device: cuda:1
+  device: cuda:0
   batch_size: 64
   do_checkpoint: True
   seed: 0
@@ -45,13 +45,13 @@ collection:
       num_steps: 200
     # burn_in: ${training.actor_critic.burn_in}
   test:
-    num_envs: 1 # was 8 
+    num_envs: 8 # was 8 
     num_episodes_to_save: ${collection.train.num_episodes_to_save}
     config:
       epsilon: 0.0
       should_sample: True
       temperature: 0.5
-      num_episodes: 10
+      num_episodes: 4
     #  burn_in: ${training.actor_critic.burn_in}
 
 training:
@@ -62,7 +62,7 @@ training:
     batch_num_samples: 4 # batch_size
     grad_acc_steps: 4
     max_grad_norm: 10.0
-    start_after_epochs: 0 #was 5
+    start_after_epochs: 4 #was 5
     stop_after_epochs: 100
   #  steps_per_epoch: 200
   world_model:

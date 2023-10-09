@@ -19,13 +19,6 @@ def make_reconstructions_from_batch(batch, save_dir, epoch, tokenizer):
     batch_tokenizer = batch['observations']
 
     rec_frames = generate_reconstructions_with_tokenizer(batch_tokenizer, tokenizer)
-    metrics = compute_metrics(batch_tokenizer, rec_frames)
-    
-    os.makedirs(save_dir, exist_ok=True)
-    
-    with open(os.path.join(save_dir, f'epoch_{epoch:03d}_metrics.json'), 'w') as f:
-        json.dump(metrics, f, indent=4)
-
 
     for i in range(5):
         original_frame = original_frames[i,0,:,:]
@@ -86,7 +79,7 @@ def compute_metrics (batch, rec_frames):
     input_images = input_images.squeeze(1)                                  #  (bt) c h w -> (bt) h w
     #reconstruction = rearrange(rec_frames, 'c t b h w  -> (b t) c h w')
     reconstruction = rec_frames.squeeze(1)                                  #  (bt) c h w -> (bt) h w
-    metrics_pysteps = {}
+    metrics_pysteps = []
     pcc_average = 0.0
     # input images and reconstruction/prediction images should be of the same shape to perform the below operation
     
@@ -104,7 +97,7 @@ def compute_metrics (batch, rec_frames):
         scores_spatial = intensity_scale(reconstruction_npy, input_images_npy, 'FSS', 0.1, [1,10,20,30])
         pcc_average += float(np.around(scores_cont['corr_p'],3))
         
-        metrics_pysteps = {'MSE:': np.around(scores_cont['MSE'],3), 
+        metrics = {'MSE:': np.around(scores_cont['MSE'],3), 
                     'MAE:': np.around(scores_cont['MAE'],3), 
                     'PCC:': np.around(scores_cont['corr_p'],3), 
                     'CSI(1mm):': np.around(scores_cat1['CSI'],3),   # CSI: TP/(TP+FP+FN)
@@ -117,7 +110,8 @@ def compute_metrics (batch, rec_frames):
                     'FSS(10km):': np.around(scores_spatial[1][0],3),
                     'FSS(20km):': np.around(scores_spatial[2][0],3),
                     'FSS(30km):': np.around(scores_spatial[3][0],3),
-                    'pcc_average': pcc_average/i,
-            }
+                    'pcc_average': pcc_average/i+1,
+        }
+        metrics_pysteps.append(metrics)
         
     return metrics_pysteps   
