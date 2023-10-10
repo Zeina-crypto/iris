@@ -67,14 +67,14 @@ class Collector:
             sample = self.data[index]
             return sample
         
-    def collect_training_data(self):
+    def collect_training_data(self, batch_size): # add the batch size as a parameter
         # Paths to your numpy array files
         train_file_path = '/space/zboucher/Data/all_data_train.npy'
         train_dataset = self.CustomDataset(train_file_path)
-        loaders_train = DataLoader(train_dataset, batch_size=1, shuffle=True)
+        self.training_data = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         length= len(train_dataset)
 
-        return loaders_train, length
+        return self.training_data, length
     
     def collect_testing_data(self):
         # Paths to your numpy array files
@@ -95,29 +95,29 @@ class Collector:
     
     
             
-    def get_next_batch(self,epoch, batch_size, start_index, training_data):
-        self.training_data= training_data
+    def get_next_batch(self, epoch, batch_size, start_index, training_data):
+    
         self.batch_size= batch_size 
         self.start_index= start_index
         end_index= start_index + batch_size
         self.epoch= epoch
         training_batch=[]
-        first_batch = next(iter(training_data))
+        # first_batch = next(iter(training_data))
         
-        for i, images in enumerate(training_data, start= start_index):
-            if i >= end_index:
-                break
-            image = images.view(self.length,1,128,128)
-            # image= image.unsqueeze(-1)
-            training_batch.append(image)
+        # for i, images in enumerate(training_data, start= start_index):
+            # if i >= end_index:
+                # break
+            # image = images.view(self.length,1,128,128)
+            ##image= image.unsqueeze(-1)
+            # training_batch.append(image)
 
-        batch = training_batch
-        
+        # batch = training_batch
+        # 
         current_index = end_index
         self.episode_ids = [None] * self.env.num_envs
         self.process_and_add_episodes(batch, batch_size, epoch, len(training_data))
             
-        return batch, current_index 
+        return current_index  # batch, current_index
 
     def process_and_add_episodes(self, batch, batch_size, epoch, length):
         # Assuming you have the logic to process episodes here

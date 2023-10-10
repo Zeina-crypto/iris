@@ -14,8 +14,8 @@ from pysteps.visualization import plot_precip_field
 def make_reconstructions_from_batch(batch, save_dir, epoch, tokenizer):
     #check_batch(batch)
 
-    original_frames = rearrange(batch['observations'], 'c t b h w  -> (b t) c h w')
-    batch_tokenizer = batch['observations']
+    original_frames = rearrange(batch, 'b t c h w  -> (b t) c h w')
+    batch_tokenizer = batch
 
     rec_frames = generate_reconstructions_with_tokenizer(batch_tokenizer, tokenizer)
     
