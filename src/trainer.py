@@ -1,28 +1,25 @@
 from collections import defaultdict
-from functools import partial
 from pathlib import Path
 import shutil
 import sys
 import time
 import math
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict
 
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
-from tqdm import tqdm
 import wandb
 
 from agent import Agent
 from collector import Collector
-from envs import SingleProcessEnv, MultiProcessEnv
 from episode import Episode
-from make_reconstructions import make_reconstructions_from_batch
-from models.actor_critic import ActorCritic
+from make_reconstructions import make_reconstructions_from_batch, generate_reconstructions_with_tokenizer,compute_metrics
+from models.transformer_generation_phase import GenerationPhase
 from models.world_model import WorldModel
-from utils import configure_optimizer, EpisodeDirManager, set_seed
+from utils import configure_optimizer, set_seed
 
 
 class Trainer:
@@ -38,19 +35,18 @@ class Trainer:
             set_seed(cfg.common.seed)
 
         self.cfg = cfg
-        self.start_epoch = 0
+        self.start_epoch = 1
         self.device = torch.device(cfg.common.device)
         self.batch_size=cfg.common.batch_size
         self.obs_time = cfg.common.obs_time 
         self.pred_time = cfg.common.pred_time 
         self.time_interval = cfg.common.time_interval
-        
-        ## where the check points should be saved no need to change this'
 
         self.ckpt_dir = Path('checkpoints')
         self.media_dir = Path('media')
         self.episode_dir = self.media_dir / 'episodes'
         self.reconstructions_dir = self.media_dir / 'reconstructions'
+        #self.generation_dir= self.media_dir / 'generation'
 
         if not cfg.common.resume:
             config_dir = Path('config')
@@ -64,43 +60,28 @@ class Trainer:
             self.media_dir.mkdir(exist_ok=False, parents=False)
             self.episode_dir.mkdir(exist_ok=False, parents=False)
             self.reconstructions_dir.mkdir(exist_ok=False, parents=False)
-        ################################################################
-
-        ## Episode manager needed to be used later:  how many episodes to be saved and where 
-        episode_manager_train = EpisodeDirManager(self.episode_dir / 'train', max_num_episodes=cfg.collection.train.num_episodes_to_save)
-        episode_manager_test = EpisodeDirManager(self.episode_dir / 'test', max_num_episodes=cfg.collection.test.num_episodes_to_save)
-        #self.episode_manager_imagination = EpisodeDirManager(self.episode_dir / 'imagination', max_num_episodes=cfg.evaluation.actor_critic.num_episodes_to_save)
         #################################################################
 
 
-        def create_env(cfg_env, num_envs):
-            env_fn = partial(instantiate, config=cfg_env)
-            return MultiProcessEnv(env_fn, num_envs, should_wait_num_envs_ratio=1.0) if num_envs > 1 else SingleProcessEnv(env_fn)
 
         if self.cfg.training.should:
-            train_env = create_env(cfg.env.train, cfg.collection.train.num_envs)
-            self.train_dataset = instantiate(cfg.datasets.train)
-            self.train_collector = Collector(train_env, self.train_dataset, episode_manager_train, obs_time=self.obs_time, pred_time=self.pred_time, time_interval=self.time_interval)
+            self.train_collector = Collector()
 
         if self.cfg.evaluation.should:
-            test_env = create_env(cfg.env.test, cfg.collection.test.num_envs)
-            self.test_dataset = instantiate(cfg.datasets.test)
-            self.test_collector = Collector(test_env, self.test_dataset, episode_manager_test, obs_time=self.obs_time, pred_time=self.pred_time, time_interval=self.time_interval)
+            self.test_collector = Collector()
 
-        assert self.cfg.training.should or self.cfg.evaluation.should
-        env = train_env if self.cfg.training.should else test_env
 
         tokenizer = instantiate(cfg.tokenizer)
         world_model = WorldModel(obs_vocab_size=tokenizer.vocab_size, config=instantiate(cfg.world_model))
-        #actor_critic = ActorCritic(**cfg.actor_critic, act_vocab_size=env.num_actions)
+
         self.agent = Agent(tokenizer, world_model).to(self.device)
+        ## the world model should be set in cuda 1 and the agent should be in cuda 0 
         print(f'{sum(p.numel() for p in self.agent.tokenizer.parameters())} parameters in agent.tokenizer')
         print(f'{sum(p.numel() for p in self.agent.world_model.parameters())} parameters in agent.world_model')
-        #print(f'{sum(p.numel() for p in self.agent.actor_critic.parameters())} parameters in agent.actor_critic')
+    
 
         self.optimizer_tokenizer = torch.optim.Adam(self.agent.tokenizer.parameters(), lr=cfg.training.learning_rate)
         self.optimizer_world_model = configure_optimizer(self.agent.world_model, cfg.training.learning_rate, cfg.training.world_model.weight_decay)
-        #self.optimizer_actor_critic = torch.optim.Adam(self.agent.actor_critic.parameters(), lr=cfg.training.learning_rate)
 
         if cfg.initialization.path_to_checkpoint is not None:
             self.agent.load(**cfg.initialization, device=self.device)
@@ -111,7 +92,7 @@ class Trainer:
     def run(self) -> None:
         
         training_data_dataloader, length_train =self.train_collector.collect_training_data(self.batch_size)
-        testing_data_dataloader, length_test= self.test_collector.collect_testing_data() #
+        testing_data_dataloader, length_test= self.test_collector.collect_testing_data(batch_size=1) #
 
         for epoch in range(self.start_epoch, 1 + self.cfg.common.epochs):
 
@@ -122,19 +103,11 @@ class Trainer:
             if self.cfg.training.should:
                 
                 if epoch <= self.cfg.collection.train.stop_after_epochs:
-            
-                    
-                    #########################################################
-                    #nb_train_batches_per_epoch= math.ceil(length_train/self.batch_size)
 
                     to_log += self.train_agent(epoch, training_data_dataloader)
 
             if self.cfg.evaluation.should and (epoch % self.cfg.evaluation.every == 0):
-                #self.test_dataset.clear()
-                
-                ####################################################
-                #nb_test_batches_per_epoch= math.ceil(length_test/self.batch_size)
-                to_log += self.eval_agent(epoch, testing_data_dataloader)
+                to_log += self.eval_agent(epoch, testing_data_dataloader, length_test)
 
             if self.cfg.training.should:
                 self.save_checkpoint(epoch, save_agent_only=not self.cfg.common.do_checkpoint)
@@ -154,139 +127,104 @@ class Trainer:
 
         cfg_tokenizer = self.cfg.training.tokenizer
         cfg_world_model = self.cfg.training.world_model
-        w = self.cfg.training.sampling_weights
-        
+
 
 
         if epoch >= cfg_tokenizer.start_after_epochs:
-            #data_index=0
             loss_total_epoch = 0.0
             intermediate_losses = defaultdict(float)
-            #for _ in tqdm(range(nb_train_batches_per_epoch + 1), desc=f"Training {str(self.agent.tokenizer)}", file=sys.stdout):
-                #index =self.train_collector.get_next_batch(epoch, self.batch_size, data_index, training_data)
             for batch in training_data_dataloader:
-                #data_index =index
                 batch= batch.unsqueeze(2)
                 metrics_tokenizer, loss, intermediate_los = self.train_component(self.agent.tokenizer, self.optimizer_tokenizer,batch, loss_total_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, **cfg_tokenizer) 
                 loss_total_epoch = loss 
                 intermediate_losses = intermediate_los
+            print("tokenizer_loss_total_epoch", loss_total_epoch)
         self.agent.tokenizer.eval()
 
         if epoch >= cfg_world_model.start_after_epochs:
-            #data_index=0
             loss_total_epoch = 0.0
             intermediate_losses = defaultdict(float)
-            #for _ in tqdm(range(nb_train_batches_per_epoch + 1), desc=f"Training {str(self.agent.world_model)}", file=sys.stdout): 
-                #_, index =self.train_collector.get_next_batch(epoch, self.batch_size, data_index, training_data)
             for batch in training_data_dataloader:
-                #data_index =index
                 batch= batch.unsqueeze(2)
                 metrics_world_model, loss, intermediate_los = self.train_component(self.agent.world_model, self.optimizer_world_model,batch, loss_total_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer, **cfg_world_model)
                 loss_total_epoch = loss 
                 intermediate_losses = intermediate_los
-            #loss_total_epoch = loss/ (nb_train_batches_per_epoch +1)
-            #_, index =self.train_collector.get_next_batch(epoch, self.batch_size, data_index, training_data)
-            #metrics_world_model, loss = self.train_component(self.agent.world_model, self.optimizer_world_model, loss_total_epoch, sequence_length=self.cfg.common.sequence_length, sample_from_start=True, sampling_weights=w, tokenizer=self.agent.tokenizer, **cfg_world_model)
+            print("worldmodel_loss_total_epoch", loss_total_epoch)
         self.agent.world_model.eval()
-
-        # if epoch > cfg_actor_critic.start_after_epochs:
-        #     metrics_actor_critic = self.train_component(self.agent.actor_critic, self.optimizer_actor_critic, sequence_length=1 + self.cfg.training.actor_critic.burn_in, sample_from_start=False, sampling_weights=w, tokenizer=self.agent.tokenizer, world_model=self.agent.world_model, **cfg_actor_critic)
-        # self.agent.actor_critic.eval()
-
         return [{'epoch': epoch, **metrics_tokenizer, **metrics_world_model}]
 
     def train_component(self, component: nn.Module, optimizer: torch.optim.Optimizer, batch,  loss_total_epoch, intermediate_losses,  batch_num_samples: int, grad_acc_steps: int, sequence_length: int, **kwargs_loss: Any) -> Dict[str, float]:
-        
-        #intermediate_losses = defaultdict(float)
+        mini_batch= math.floor(batch.size(0)/(batch_num_samples*grad_acc_steps))
+        counter=0
+        # optimizer.zero_grad()
+        for _ in range(mini_batch):
+            optimizer.zero_grad()
+            for _ in range(grad_acc_steps): 
+                batch_training= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:] #[:,:,(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:]
+                batch_training = self._to_device(batch_training)
+                losses = component.compute_loss(batch_training, **kwargs_loss) / grad_acc_steps
+                loss_total_step = losses.loss_total
+                loss_total_step.backward()
+                loss_total_epoch += loss_total_step.item() 
 
-        # for batch in tqdm(range(nb_batches_per_epoch+1), desc=f"Training {str(component)}", file=sys.stdout):
-        optimizer.zero_grad()
-            #batch, index_updated = self.train_collector.get_next_batch(epoch, batch_size, index, training_data)
-        # batch = self.train_dataset.batch_buffer(batch_num_samples, sequence_length)
-        # batch = self._to_device(batch)
-        #mini_batch= math.ceil(self.batch_size /(batch_num_samples*grad_acc_steps))
-        #counter=0
-       # for _ in range(self.batch_size):
-        for _ in range(grad_acc_steps): 
-            batch_training= batch #[:,:,(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:]
-            batch_training = self._to_device(batch_training)
-            losses = component.compute_loss(batch_training, **kwargs_loss) / grad_acc_steps
-            loss_total_step = losses.loss_total
-            loss_total_step.backward()
-            loss_total_epoch += loss_total_step.item() 
+                for loss_name, loss_value in losses.intermediate_losses.items():
+                    intermediate_losses[f"{str(component)}/train/{loss_name}"] += loss_value
+                
+                counter= counter + 1
+                
+            print("loss_total_batch", loss_total_epoch)
 
-            for loss_name, loss_value in losses.intermediate_losses.items():
-                intermediate_losses[f"{str(component)}/train/{loss_name}"] += loss_value
+            optimizer.step()
+
             
-            #counter= counter + 1
-
-
-            # batch = self._to_device(batch)
-            # losses = component.compute_loss(batch, **kwargs_loss)/grad_acc_steps
-            # loss_total_step = losses.loss_total
-            # (loss_total_step/batch_num_samples).backward()
-            # loss_total_epoch += (loss_total_step).item()/batch_num_samples
-            # index= index_updated
-            
-
-            # for loss_name, loss_value in losses.intermediate_losses.items():
-                # intermediate_losses[f"{str(component)}/train/{loss_name}"] += (loss_value/batch_num_samples) 
-
-                # if max_grad_norm is not None:
-                    # torch.nn.utils.clip_grad_norm_(component.parameters(), max_grad_norm)
-
-        optimizer.step()
-
-         
         metrics = {f'{str(component)}/train/total_loss': loss_total_epoch, **intermediate_losses}
 
 
-        print("loss_total_epoch", loss_total_epoch)
+        
 
         #batch = self._out_device(batch)
         return metrics, loss_total_epoch, intermediate_losses
-
+    
     @torch.no_grad()
-    def eval_agent(self, epoch: int, testing_data_dataloader) -> None:
+    def eval_agent(self, epoch: int, testing_data_dataloader, length_test) -> None:
         self.agent.eval()
 
+        
         metrics_tokenizer, metrics_world_model = {}, {}
+        
 
         cfg_tokenizer = self.cfg.evaluation.tokenizer
         cfg_world_model = self.cfg.evaluation.world_model
         
-
+# 
         if epoch >= cfg_tokenizer.start_after_epochs:
             loss_total_test_epoch = 0.0
             intermediate_losses = defaultdict(float)
-            #for _ in tqdm(range(nb_test_batches_per_epoch + 1), desc=f"Evaluating {str(self.agent.tokenizer)}", file=sys.stdout):
-            #    _, index =self.test_collector.get_next_batch(epoch, self.batch_size, test_data_index, testing_data)
-            #    test_data_index =index
+            self.accumulated_metrics = defaultdict(float)           
             for batch in testing_data_dataloader:
-                batch= batch.unsqueeze(2)
+                batch= batch.unsqueeze(2)            
                 metrics_tokenizer, loss_test, intermediate_los  = self.eval_component(self.agent.tokenizer, cfg_tokenizer.batch_num_samples,batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
-            # loss_total_test_epoch = loss_test/ (nb_test_batches_per_epoch + 1)
-            # _, index =self.test_collector.get_next_batch(epoch, self.batch_size, test_data_index, testing_data)
-            # metrics_tokenizer, loss_test = self.eval_component(self.agent.tokenizer, cfg_tokenizer.batch_num_samples, loss_total_test_epoch, sequence_length=self.cfg.common.sequence_length)
+                print("evaluation total loss", loss_total_test_epoch)
+                
+            for metrics_name, metrics_value in metrics_tokenizer.items():
+                metrics_tokenizer[metrics_name] = metrics_value / length_test
+
+                
             
 
         if epoch >= cfg_world_model.start_after_epochs:
             loss_total_test_epoch = 0.0
             intermediate_losses = defaultdict(float)
-            #for _ in tqdm(range(nb_test_batches_per_epoch + 1), desc=f"Evaluating {str(self.agent.world_model)}", file=sys.stdout):
-            #_, index =self.test_collector.get_next_batch(epoch, self.batch_size, test_data_index, testing_data)
-            #    test_data_index =index
+                    
             for batch in testing_data_dataloader:
                 batch= batch.unsqueeze(2)
-                metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples,batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
+                metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples, batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
-           
-           
-        # if epoch >= 0:
-            # self.inspect_imagination(epoch)  
+                print("evaluation total loss", loss_total_test_epoch)
+
 
 
         if cfg_tokenizer.save_reconstructions:
@@ -295,51 +233,62 @@ class Trainer:
                 break
             reconstruct_batch = self._to_device(reconstruct_batch)
             make_reconstructions_from_batch(reconstruct_batch, save_dir=self.reconstructions_dir, epoch=epoch, tokenizer=self.agent.tokenizer)
+        
+        # if cfg_world_model.save_generations: 
+            # for batch in testing_data_dataloader: 
+                # generate_batch=batch.unsqueeze(2)
+                # break 
+            # generate_batch = self._to_device(generate_batch)
+            # self.start_generation(generate_batch, epoch=epoch)
+            # 
+
 
         return [metrics_tokenizer, metrics_world_model]
+    
+    
 
     @torch.no_grad()
-    def eval_component(self, component: nn.Module, batch_num_samples: int,batch, loss_total_test_epoch, intermediate_losses, sequence_length: int, **kwargs_loss: Any) -> Dict[str, float]:
+    def eval_component(self, component: nn.Module, batch_num_samples: int, batch, loss_total_test_epoch, intermediate_losses, sequence_length: int, **kwargs_loss: Any) -> Dict[str, float]:
+        pysteps_metrics = {}
         
-
-        #pbar = tqdm(desc=f"Evaluating {str(component)}", file=sys.stdout)
-        # batch = self.test_dataset.batch_buffer(batch_num_samples, sequence_length)
-        # batch = self._to_device(batch)
-        # mini_batch= math.ceil(self.batch_size /(batch_num_samples))
-        #steps=0
-        #for _ in range(mini_batch):
-        batch_testing = self._to_device(batch)
-        #batch_testing= batch['observations'][:,:,(steps*batch_num_samples):(steps+1)*(batch_num_samples),:,:]            
+        batch_testing = self._to_device(batch)          
         losses = component.compute_loss(batch_testing, **kwargs_loss)
         loss_total_test_epoch += (losses.loss_total.item())
 
         for loss_name, loss_value in losses.intermediate_losses.items():
             intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
 
-        # steps += 1
-        # pbar.update(steps)
-        intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
-        metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+        ######## Pysteps Metrics Calculation
+        
+        if str(component) =='tokenizer':
+            rec_frames = generate_reconstructions_with_tokenizer(batch_testing, component)
+            pysteps_metrics = compute_metrics(batch_testing, rec_frames)
+        
+            for metrics_name, metrics_value in pysteps_metrics.items():
+                if math.isnan(metrics_value):
+                    metrics_value = 0.0
+                self.accumulated_metrics[metrics_name] += metrics_value
+        
+
+            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses, **self.accumulated_metrics}
+        else: 
+            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+        
+        # print("evaluation total loss", loss_total_test_epoch)
+
         return metrics, loss_total_test_epoch, intermediate_losses
     
+
     # @torch.no_grad()
-    # def inspect_imagination(self, epoch: int) -> None:
-        #mode_str = 'imagination'
-        # batch = self.test_dataset.batch_buffer(batch_num_samples=1, sequence_length=16)
-        # outputs = ActorCritic.imagine(self, batch=self._to_device(batch),tokenizer= self.agent.tokenizer,world_model= self.agent.world_model, horizon=9)
+    # def start_generation(self, batch, epoch) -> None:
+        # predictions, sequence_loss, reconstruction_loss_real_tokens, reconstruction_loss_generated_tokens = GenerationPhase.compute_loss(self, batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=16, horizon=9, obs_time=7)
+        # observations= batch[7:16,:,:,:]
+        # GenerationPhase.show_prediction(observations,predictions, save_dir=self.generation_dir, epoch=epoch)
 
-        # to_log = []
-        # for i, (o, a, r, d) in enumerate(zip(outputs.observations.cpu(), outputs.actions.cpu(), outputs.rewards.cpu(), outputs.ends.long().cpu())):  # Make everything (N, T, ...) instead of (T, N, ...)
-            # episode = Episode(o, a, r, d, torch.ones_like(d))
-            # episode_id = (epoch - 1 - self.cfg.training.actor_critic.start_after_epochs) * outputs.observations.size(0) + i
-            # self.episode_manager_imagination.save(episode, episode_id, epoch)
 
-            # metrics_episode = {k: v for k, v in episode.compute_metrics().__dict__.items()}
-            # metrics_episode['episode_num'] = episode_id
-            # metrics_episode['action_histogram'] = wandb.Histogram(episode.actions.numpy(), num_bins=self.agent.world_model.act_vocab_size)
-            # to_log.append({f'{mode_str}/{k}': v for k, v in metrics_episode.items()})
 
-        # return to_log
     def _save_checkpoint(self, epoch: int, save_agent_only: bool) -> None:
         torch.save(self.agent.state_dict(), self.ckpt_dir / 'last.pt')
         if not save_agent_only:
@@ -348,11 +297,6 @@ class Trainer:
                 "optimizer_tokenizer": self.optimizer_tokenizer.state_dict(),
                 "optimizer_world_model": self.optimizer_world_model.state_dict(),
             }, self.ckpt_dir / 'optimizer.pt')
-            # ckpt_dataset_dir = self.ckpt_dir / 'dataset'
-            # ckpt_dataset_dir.mkdir(exist_ok=True, parents=False)
-            # self.train_dataset.update_disk_checkpoint(ckpt_dataset_dir)
-            # if self.cfg.evaluation.should:
-                # torch.save(self.test_dataset.num_seen_episodes, self.ckpt_dir / 'num_seen_episodes_test_dataset.pt')
 
     def save_checkpoint(self, epoch: int, save_agent_only: bool) -> None:
         tmp_checkpoint_dir = Path('checkpoints_tmp')
@@ -362,14 +306,10 @@ class Trainer:
 
     def load_checkpoint(self) -> None:
         assert self.ckpt_dir.is_dir()
-        #self.start_epoch = torch.load(self.ckpt_dir / 'epoch.pt') + 1
         self.agent.load(self.ckpt_dir / 'last.pt', device=self.device)
         ckpt_opt = torch.load(self.ckpt_dir / 'optimizer.pt', map_location=self.device)
         self.optimizer_tokenizer.load_state_dict(ckpt_opt['optimizer_tokenizer'])
         self.optimizer_world_model.load_state_dict(ckpt_opt['optimizer_world_model'])
-        #self.train_dataset.load_disk_checkpoint(self.ckpt_dir / 'dataset')
-        # if self.cfg.evaluation.should:
-            # self.test_dataset.num_seen_episodes = torch.load(self.ckpt_dir / 'num_seen_episodes_test_dataset.pt')
         print(f'Successfully loaded model, optimizer and {len(self.train_dataset)} episodes from {self.ckpt_dir.absolute()}.')
 
     def _to_device(self, batch: torch.Tensor):
