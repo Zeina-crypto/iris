@@ -66,7 +66,7 @@ class WorldModel(nn.Module):
         
         with torch.no_grad():
             observations= rearrange(batch, 'b t c h w  -> (b t) c h w')
-            obs_tokens = tokenizer.encode(observations).tokens  # (BL, K)
+            obs_tokens = tokenizer.encode(observations, should_preprocess=True).tokens  # (BL, K)
             shape_obs = batch.size()
             shape_token= obs_tokens.size()
 

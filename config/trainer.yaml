@@ -23,7 +23,7 @@ initialization:
 
 common:
   epochs: 200
-  device: cuda:1
+  device: cuda:1 
   batch_size: 512
   do_checkpoint: True
   seed: 0
@@ -69,7 +69,7 @@ training:
     grad_acc_steps: 8
     max_grad_norm: 10.0
     weight_decay: 0.01
-    start_after_epochs: 25 # was 25
+    start_after_epochs: 15 # was 25
     stop_after_epochs: 200
   #  steps_per_epoch: 200
   # actor_critic:
@@ -86,7 +86,7 @@ training:
 
 evaluation:
   should: True 
-  every: 5
+  every: 4
   tokenizer:
     batch_num_samples: 1
     start_after_epochs: ${training.tokenizer.start_after_epochs}
