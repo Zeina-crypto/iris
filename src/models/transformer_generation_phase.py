@@ -54,18 +54,21 @@ class GenerationPhase():
     
 
 
+
+
     def generate(self, batch: Batch, tokenizer: Tokenizer, world_model: WorldModel, latent_dim:int, horizon: int, obs_time: int):
-     
+        
+
+        all_observations = []
         initial_observations = batch
         device = initial_observations.device
         wm_env = WorldModelEnv(tokenizer, world_model, device)
-        ground_truth = wm_env.reset_from_initial_observations(initial_observations[:,0:obs_time,:,:,:])
-        ground_truth_observations = wm_env.reset_from_initial_observations(initial_observations[:,0:obs_time,:,:,:])
-        obs= ground_truth_observations
-        input_obs=obs.clone().detach()
-        predicted_observations, logits_obs = wm_env.step(input_obs, latent_dim, horizon)
+        obs = wm_env.reset_from_initial_observations(initial_observations[:,:7])
+        for k in range(1): 
+            all_observations.append(obs)
+            predicted_observations = wm_env.step(obs, should_predict_next_obs=(k < 1))
      
-        return ground_truth, logits_obs, predicted_observations
+        return all_observations
         
   
 

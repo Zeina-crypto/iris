@@ -219,7 +219,9 @@ class Trainer:
             intermediate_losses = defaultdict(float)
                     
             for batch in testing_data_dataloader:
-                batch= batch.unsqueeze(2)
+                generate_batch= batch.unsqueeze(2)
+                generate_batch = self._to_device(generate_batch)
+                self.start_generation(generate_batch, epoch=epoch)
                 metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples, batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
@@ -283,20 +285,21 @@ class Trainer:
 
     # @torch.no_grad()
     # def start_generation(self, batch, epoch) -> None:
-        # predictions, sequence_loss, reconstruction_loss_real_tokens, reconstruction_loss_generated_tokens = GenerationPhase.compute_loss(self, batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=16, horizon=9, obs_time=7)
+        # predicted_observations= GenerationPhase.generate(self, batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=16, horizon=8, obs_time=8)
         # observations= batch[7:16,:,:,:]
         # GenerationPhase.show_prediction(observations,predictions, save_dir=self.generation_dir, epoch=epoch)
 
 
 
     def _save_checkpoint(self, epoch: int, save_agent_only: bool) -> None:
-        torch.save(self.agent.state_dict(), self.ckpt_dir / 'last.pt')
-        if not save_agent_only:
-            torch.save(epoch, self.ckpt_dir / 'epoch.pt')
-            torch.save({
-                "optimizer_tokenizer": self.optimizer_tokenizer.state_dict(),
-                "optimizer_world_model": self.optimizer_world_model.state_dict(),
-            }, self.ckpt_dir / 'optimizer.pt')
+        if epoch % self.cfg.evaluation.every == 0:
+            torch.save(self.agent.state_dict(), self.ckpt_dir / f'model_checkpoint_epoch_{epoch:02d}.pt')
+            if not save_agent_only:
+                torch.save(epoch, self.ckpt_dir / 'epoch.pt')
+                torch.save({
+                    "optimizer_tokenizer": self.optimizer_tokenizer.state_dict(),
+                    "optimizer_world_model": self.optimizer_world_model.state_dict(),
+                }, self.ckpt_dir / f'optimizer_{epoch:02d}.pt')
 
     def save_checkpoint(self, epoch: int, save_agent_only: bool) -> None:
         tmp_checkpoint_dir = Path('checkpoints_tmp')
