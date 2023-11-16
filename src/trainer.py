@@ -72,7 +72,7 @@ class Trainer:
 
 
         tokenizer = instantiate(cfg.tokenizer)
-        world_model = WorldModel(obs_vocab_size=tokenizer.vocab_size, config=instantiate(cfg.world_model))
+        world_model = WorldModel(obs_vocab_size=tokenizer.vocab_size,config=instantiate(cfg.world_model))
 
         self.agent = Agent(tokenizer, world_model).to(self.device)
         ## the world model should be set in cuda 1 and the agent should be in cuda 0 
@@ -87,12 +87,13 @@ class Trainer:
             self.agent.load(**cfg.initialization, device=self.device)
 
         if cfg.common.resume:
-            self.load_checkpoint()
+            ckpt_opt = torch.load('/space/zboucher/iris/outputs/2023-11-09/11-49-37/checkpoints/optimizer_04.pt', map_location=self.device)
+            self.optimizer_world_model.load_state_dict(ckpt_opt['optimizer_world_model'])
 
     def run(self) -> None:
         
         training_data_dataloader, length_train =self.train_collector.collect_training_data(self.batch_size)
-        testing_data_dataloader, length_test= self.test_collector.collect_testing_data(batch_size=1) #
+        testing_data_dataloader, length_test= self.test_collector.collect_testing_data(batch_size=self.batch_size) #
 
         for epoch in range(self.start_epoch, 1 + self.cfg.common.epochs):
 
@@ -211,6 +212,14 @@ class Trainer:
             for metrics_name, metrics_value in metrics_tokenizer.items():
                 metrics_tokenizer[metrics_name] = metrics_value / length_test
 
+            if cfg_tokenizer.save_reconstructions:
+                for batch in testing_data_dataloader:
+                    reconstruct_batch= batch.unsqueeze(2)
+                    reconstruct_batch=reconstruct_batch[0:1,:,:,:]
+                    break
+                reconstruct_batch = self._to_device(reconstruct_batch)
+                make_reconstructions_from_batch(reconstruct_batch, save_dir=self.reconstructions_dir, epoch=epoch, tokenizer=self.agent.tokenizer)
+
                 
             
 
@@ -220,21 +229,16 @@ class Trainer:
                     
             for batch in testing_data_dataloader:
                 generate_batch= batch.unsqueeze(2)
-                generate_batch = self._to_device(generate_batch)
-                self.start_generation(generate_batch, epoch=epoch)
-                metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples, batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
+                # generate_batch=generate_batch[:,:,:,:,:]
+                #self.start_generation(generate_batch, epoch=epoch)
+                metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples, generate_batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
                 print("evaluation total loss", loss_total_test_epoch)
 
 
 
-        if cfg_tokenizer.save_reconstructions:
-            for batch in testing_data_dataloader:
-                reconstruct_batch= batch.unsqueeze(2)
-                break
-            reconstruct_batch = self._to_device(reconstruct_batch)
-            make_reconstructions_from_batch(reconstruct_batch, save_dir=self.reconstructions_dir, epoch=epoch, tokenizer=self.agent.tokenizer)
+        
         
         # if cfg_world_model.save_generations: 
             # for batch in testing_data_dataloader: 
@@ -252,31 +256,38 @@ class Trainer:
     @torch.no_grad()
     def eval_component(self, component: nn.Module, batch_num_samples: int, batch, loss_total_test_epoch, intermediate_losses, sequence_length: int, **kwargs_loss: Any) -> Dict[str, float]:
         pysteps_metrics = {}
-        
-        batch_testing = self._to_device(batch)          
-        losses = component.compute_loss(batch_testing, **kwargs_loss)
-        loss_total_test_epoch += (losses.loss_total.item())
+        mini_batch= math.floor(batch.size(0)/(batch_num_samples))
+        counter=0
 
-        for loss_name, loss_value in losses.intermediate_losses.items():
-            intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
+        for _ in range(mini_batch):
+            batch_testing= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:]
+        
+            batch_testing = self._to_device(batch_testing)          
+            losses = component.compute_loss(batch_testing, **kwargs_loss)
+            loss_total_test_epoch += (losses.loss_total.item())
+
+            for loss_name, loss_value in losses.intermediate_losses.items():
+                intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
+            
+            counter= counter + 1
 
         ######## Pysteps Metrics Calculation
         
-        if str(component) =='tokenizer':
-            rec_frames = generate_reconstructions_with_tokenizer(batch_testing, component)
-            pysteps_metrics = compute_metrics(batch_testing, rec_frames)
-        
-            for metrics_name, metrics_value in pysteps_metrics.items():
-                if math.isnan(metrics_value):
-                    metrics_value = 0.0
-                self.accumulated_metrics[metrics_name] += metrics_value
-        
+            if str(component) =='tokenizer':
+                rec_frames = generate_reconstructions_with_tokenizer(batch_testing, component)
+                pysteps_metrics = compute_metrics(batch_testing, rec_frames)
+            
+                for metrics_name, metrics_value in pysteps_metrics.items():
+                    if math.isnan(metrics_value):
+                        metrics_value = 0.0
+                    self.accumulated_metrics[metrics_name] += metrics_value
+            
 
-            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
-            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses, **self.accumulated_metrics}
-        else: 
-            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
-            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+                intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+                metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses, **self.accumulated_metrics}
+            else: 
+                intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+                metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
         
         # print("evaluation total loss", loss_total_test_epoch)
 
