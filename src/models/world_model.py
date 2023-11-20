@@ -18,6 +18,7 @@ from utils import init_weights, LossWithIntermediateLosses
 class WorldModelOutput:
     output_sequence: torch.FloatTensor
     logits_observations: torch.FloatTensor
+    past_keys_values: torch.tensor
 
 class WorldModel(nn.Module):
     def __init__(self, obs_vocab_size: int, config: TransformerConfig) -> None:
@@ -51,22 +52,46 @@ class WorldModel(nn.Module):
     def __repr__(self) -> str:
         return "world_model"
             
-    def forward(self, obs_tokens: torch.LongTensor, past_keys_values: Optional[KeysValues] = None) -> WorldModelOutput:
+    def forward(self, obs_tokens: torch.LongTensor, past_keys_values= None) -> WorldModelOutput:
 
-        num_steps = obs_tokens.size(1)  # (B, T)
-        prev_steps = 0 if past_keys_values is None else past_keys_values.size
-        sequences = self.embedder(obs_tokens, num_steps, prev_steps) + self.pos_emb(prev_steps + torch.arange(num_steps, device=obs_tokens.device))
+        num_steps = obs_tokens.shape[1]  # (B, T)
+        if past_keys_values is None: 
+            past_shape = 0 
+        else : 
+            past_shape = len(past_keys_values)
+            print(past_shape)
+        sequences = self.embedder(obs_tokens, num_steps, past_shape) + self.pos_emb(torch.arange(past_shape, past_shape+num_steps, device=obs_tokens.device))
+        #print("sequence ",sequences.size())
+
+        x = self.transformer.forward(sequences, past_keys_values)
+        logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=past_shape)
+        
+        return WorldModelOutput(x, logits_observations, past_keys_values)
+    
 
 
-        x = self.transformer(sequences, past_keys_values)
-        logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=prev_steps)
-        return WorldModelOutput(x, logits_observations)
+    def forward_with_past(self, obs_tokens: torch.LongTensor, past_keys_values=None) -> WorldModelOutput:
+
+        num_steps = obs_tokens.shape[1]  # (B, T)
+        if past_keys_values is None: 
+            past_shape = 0 
+        else : 
+            past_shape = len(past_keys_values)
+            print(past_shape)
+        sequences = self.embedder(obs_tokens, num_steps, past_shape) + self.pos_emb(torch.arange(past_shape, past_shape+num_steps, device=obs_tokens.device))
+        print("sequence ",sequences.size())
+
+        x, past_keys_values = self.transformer.forward_with_past(sequences, past_keys_values)
+        logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=past_shape)
+        
+        return WorldModelOutput(x, logits_observations, past_keys_values)
+    
     
     def compute_loss(self, batch: Batch, tokenizer: Tokenizer, **kwargs: Any) -> LossWithIntermediateLosses:
         
         with torch.no_grad():
             observations= rearrange(batch, 'b t c h w  -> (b t) c h w')
-            obs_tokens = tokenizer.encode(observations, should_preprocess=True).tokens  # (BL, K)
+            obs_tokens = tokenizer.encode(observations).tokens  # (BL, K)
             shape_obs = batch.size()
             shape_token= obs_tokens.size()
 
@@ -80,7 +105,7 @@ class WorldModel(nn.Module):
         labels_observations = self.compute_labels_world_model(tokens)
 
         logits_observations = rearrange(outputs.logits_observations[:, :-1], 'b t o -> (b t) o')
-        loss_obs = F.cross_entropy(logits_observations,labels_observations)
+        loss_obs = F.cross_entropy(logits_observations, labels_observations)
         #print("Cross entropy Losses", loss_obs)
         return LossWithIntermediateLosses(loss_obs=loss_obs)
     
