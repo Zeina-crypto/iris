@@ -19,6 +19,7 @@ class WorldModelOutput:
     output_sequence: torch.FloatTensor
     logits_observations: torch.FloatTensor
     past_keys_values: torch.tensor
+    attention_weights:  torch.tensor
 
 class WorldModel(nn.Module):
     def __init__(self, obs_vocab_size: int, config: TransformerConfig) -> None:
@@ -52,14 +53,14 @@ class WorldModel(nn.Module):
     def __repr__(self) -> str:
         return "world_model"
             
-    def forward(self, obs_tokens: torch.LongTensor, past_keys_values= None) -> WorldModelOutput:
+    def forward(self, obs_tokens: torch.LongTensor, past_keys_values: Optional[KeysValues] = None) -> WorldModelOutput:
 
         num_steps = obs_tokens.shape[1]  # (B, T)
         if past_keys_values is None: 
             past_shape = 0 
         else : 
             past_shape = len(past_keys_values)
-            print(past_shape)
+            # print(past_shape)
         sequences = self.embedder(obs_tokens, num_steps, past_shape) + self.pos_emb(torch.arange(past_shape, past_shape+num_steps, device=obs_tokens.device))
         #print("sequence ",sequences.size())
 
@@ -68,30 +69,45 @@ class WorldModel(nn.Module):
         
         return WorldModelOutput(x, logits_observations, past_keys_values)
     
-
-
-    def forward_with_past(self, obs_tokens: torch.LongTensor, past_keys_values=None) -> WorldModelOutput:
-
+    
+    def forward_with_past(self, obs_tokens: torch.LongTensor, past_keys_values=None, past_length = None) -> WorldModelOutput:
+        # inference only
+        assert not self.training
         num_steps = obs_tokens.shape[1]  # (B, T)
-        if past_keys_values is None: 
-            past_shape = 0 
-        else : 
-            past_shape = len(past_keys_values)
-            print(past_shape)
-        sequences = self.embedder(obs_tokens, num_steps, past_shape) + self.pos_emb(torch.arange(past_shape, past_shape+num_steps, device=obs_tokens.device))
-        print("sequence ",sequences.size())
-
-        x, past_keys_values = self.transformer.forward_with_past(sequences, past_keys_values)
-        logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=past_shape)
+        #print("Number of steps:", num_steps)
         
-        return WorldModelOutput(x, logits_observations, past_keys_values)
+        if past_keys_values is not None:
+            assert past_length is not None
+            past_keys_values= torch.cat(past_keys_values, dim=-2) 
+            past_shape = list(past_keys_values.shape)
+            expected_shape = [self.config.num_layers, 2, obs_tokens.shape[0], self.config.num_heads, past_length, self.config.embed_dim//self.config.num_heads]
+            assert past_shape == expected_shape, f"{past_shape} =/= {expected_shape}"
+            #print("size of last past key", past_keys_values.shape)
+        else:
+            past_length=0
+        #print("Number of past steps:", past_length)
+        a = self.embedder(obs_tokens, num_steps, past_length)
+        #print("embedder shape",a.shape)
+        b =  self.pos_emb(past_length + torch.arange(num_steps, device=obs_tokens.device))
+       # print("Poisition embedder shape",b.shape)
+        sequences = a + b 
+        #print("Sequences shape:", sequences.size())
+
+        x, past_keys_values, attention_weights = self.transformer.forward_with_past(sequences, past_keys_values)
+       # print("Output after transformer shape:", x.size())
+        #print("Past keys values after transformer:", past_keys_values.shape)
+        logits_observations = self.head_observations(x, num_steps=num_steps, prev_steps=past_length)
+      #  print("Logits observations shape:", logits_observations.size())
+
+        return WorldModelOutput(x, logits_observations, past_keys_values, attention_weights)
+    
     
     
     def compute_loss(self, batch: Batch, tokenizer: Tokenizer, **kwargs: Any) -> LossWithIntermediateLosses:
         
         with torch.no_grad():
             observations= rearrange(batch, 'b t c h w  -> (b t) c h w')
-            obs_tokens = tokenizer.encode(observations).tokens  # (BL, K)
+            obs_tokens = tokenizer.encode(observations, should_preprocess=True).tokens  # (BL, K)
             shape_obs = batch.size()
             shape_token= obs_tokens.size()
 

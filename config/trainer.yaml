@@ -7,23 +7,23 @@ defaults:
   - datasets: default
 
 wandb:
-  mode: online 
+  mode: online #disabled #online
   project: iris
   entity: null
-  name: null
+  name: null 
   group: null
   tags: null
   notes: null
 
 initialization:
-  path_to_checkpoint: null 
-  load_tokenizer: False
+  path_to_checkpoint: '/space/zboucher/model_checkpoint_epoch_100.pt' 
+  load_tokenizer: True 
   load_world_model: False
   #load_actor_critic: False
 
 common:
-  epochs: 200
-  device: cuda:1 
+  epochs: 60
+  device: cuda:0
   batch_size: 512
   do_checkpoint: True
   seed: 0
@@ -36,7 +36,7 @@ common:
 collection:
   train:
     num_envs: 1
-    stop_after_epochs: 200 
+    stop_after_epochs: 60
     num_episodes_to_save: 4
     config:
       epsilon: 0.01
@@ -55,22 +55,22 @@ collection:
     #  burn_in: ${training.actor_critic.burn_in}
 
 training:
-  should: True 
+  should: True
   learning_rate: 0.0001
   tokenizer:
-    batch_num_samples: 2 # batch_size
-    grad_acc_steps: 8
+    batch_num_samples: 1 #2  # batch_size
+    grad_acc_steps: 16 #8
     max_grad_norm: 10.0
-    start_after_epochs: 0 #was 5
-    stop_after_epochs: 100
+    start_after_epochs: 100 #was 5
+    stop_after_epochs: 200
   #  steps_per_epoch: 200
   world_model:
-    batch_num_samples: 2 # batch_size
-    grad_acc_steps: 8
+    batch_num_samples: 1 #2 # batch_size
+    grad_acc_steps: 16 #8
     max_grad_norm: 10.0
     weight_decay: 0.01
-    start_after_epochs: 15 # was 25
-    stop_after_epochs: 200
+    start_after_epochs: 0 # was 25
+    stop_after_epochs: 60
   #  steps_per_epoch: 200
   # actor_critic:
     # batch_num_samples: 64
@@ -85,13 +85,15 @@ training:
     # entropy_weight: 0.001
 
 evaluation:
-  should: True 
-  every: 4
+  should: True
+  every: 2
   tokenizer:
-    batch_num_samples: 1
+    batch_num_samples: 1 #2
     start_after_epochs: ${training.tokenizer.start_after_epochs}
     save_reconstructions: True
+    stop_after_epochs: 5
   world_model:
-    batch_num_samples: 1
+    batch_num_samples: 1 #2
     start_after_epochs: ${training.world_model.start_after_epochs}
+    stop_after_epochs: 60
     #save_generations: True

@@ -40,44 +40,38 @@ class WorldModelEnv:
 
         return obs_tokens
 
-    # @torch.no_grad()
-    # def refresh_keys_values_with_initial_obs_tokens(self, obs_tokens: torch.LongTensor) -> torch.FloatTensor:
-    #     n, num_observations_tokens = obs_tokens.shape
-    #     assert num_observations_tokens == self.num_observations_tokens
-    #     self.keys_values_wm = self.world_model.transformer.generate_empty_keys_values(n=n, max_tokens=self.world_model.config.max_tokens)
-    #     #outputs_wm = self.world_model(obs_tokens, past_keys_values=self.keys_values_wm)
-    #     return self.keys_values_wm   # (B, K, E)
     
     @torch.no_grad()
-    def step(self , observations, num_steps) -> None:
+    def step(self , observations, num_steps, temperature) -> None:
+        #self.world_model.eval()
         sample=observations
         cond_len = observations.shape[1]
         past = None
         x=sample
-        
+        #temperature = 0.5
         
 
         for k in range(num_steps):
-            outputs_wm = self.world_model.forward_with_past(x, past)
+            outputs_wm = self.world_model.forward_with_past(x, past, past_length = (k+cond_len-1))
 
 
             if past is None:
                 past = [outputs_wm.past_keys_values]
             else:
                 past.append(outputs_wm.past_keys_values)
-                print("past len", len(past))
+                # print("past len", len(past))
 
             logits = outputs_wm.logits_observations
-            logits=logits[:, -1, :]
+            logits=logits[:, -1, :]/temperature
             token = Categorical(logits=logits).sample()
             x = token.unsqueeze(1) 
             sample = torch.cat((sample, x), dim=1)
         
 
         sample = sample[:, :] 
+        att= outputs_wm.attention_weights
 
-
-        return sample 
+        return sample, att 
 
     
 

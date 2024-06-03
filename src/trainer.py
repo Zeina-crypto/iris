@@ -87,12 +87,13 @@ class Trainer:
             self.agent.load(**cfg.initialization, device=self.device)
 
         if cfg.common.resume:
-            ckpt_opt = torch.load('/space/zboucher/iris/outputs/2023-11-09/11-49-37/checkpoints/optimizer_04.pt', map_location=self.device)
-            self.optimizer_world_model.load_state_dict(ckpt_opt['optimizer_world_model'])
+            self.load_checkpoint()
+            # ckpt_opt = torch.load('/space/zboucher/iris/outputs/2023-11-09/11-49-37/checkpoints/optimizer_04.pt', map_location=self.device)
+            # self.optimizer_world_model.load_state_dict(ckpt_opt['optimizer_world_model'])
 
     def run(self) -> None:
         
-        training_data_dataloader, length_train =self.train_collector.collect_training_data(self.batch_size)
+        training_data_dataloader, length_train = self.train_collector.collect_training_data(self.batch_size)
         testing_data_dataloader, length_test= self.test_collector.collect_testing_data(batch_size=self.batch_size) #
 
         for epoch in range(self.start_epoch, 1 + self.cfg.common.epochs):
@@ -103,7 +104,7 @@ class Trainer:
 
             if self.cfg.training.should:
                 
-                if epoch <= self.cfg.collection.train.stop_after_epochs:
+                if epoch <= self.cfg.collection.train.stop_after_epochs: ## To disable the training hier just replace < by > 
 
                     to_log += self.train_agent(epoch, training_data_dataloader)
 
@@ -131,7 +132,7 @@ class Trainer:
 
 
 
-        if epoch >= cfg_tokenizer.start_after_epochs:
+        if epoch >=  cfg_tokenizer.start_after_epochs:
             loss_total_epoch = 0.0
             intermediate_losses = defaultdict(float)
             for batch in training_data_dataloader:
@@ -139,10 +140,10 @@ class Trainer:
                 metrics_tokenizer, loss, intermediate_los = self.train_component(self.agent.tokenizer, self.optimizer_tokenizer,batch, loss_total_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, **cfg_tokenizer) 
                 loss_total_epoch = loss 
                 intermediate_losses = intermediate_los
-            print("tokenizer_loss_total_epoch", loss_total_epoch)
+           #print("tokenizer_loss_total_epoch", loss_total_epoch)
         self.agent.tokenizer.eval()
 
-        if epoch >= cfg_world_model.start_after_epochs:
+        if epoch >=  cfg_world_model.start_after_epochs:
             loss_total_epoch = 0.0
             intermediate_losses = defaultdict(float)
             for batch in training_data_dataloader:
@@ -150,7 +151,7 @@ class Trainer:
                 metrics_world_model, loss, intermediate_los = self.train_component(self.agent.world_model, self.optimizer_world_model,batch, loss_total_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer, **cfg_world_model)
                 loss_total_epoch = loss 
                 intermediate_losses = intermediate_los
-            print("worldmodel_loss_total_epoch", loss_total_epoch)
+            #print("worldmodel_loss_total_epoch", loss_total_epoch)
         self.agent.world_model.eval()
         return [{'epoch': epoch, **metrics_tokenizer, **metrics_world_model}]
 
@@ -173,13 +174,13 @@ class Trainer:
                 
                 counter= counter + 1
                 
-            print("loss_total_batch", loss_total_epoch)
+            # print(f'{str(component)}/train', loss_total_epoch)
 
             optimizer.step()
 
             
         metrics = {f'{str(component)}/train/total_loss': loss_total_epoch, **intermediate_losses}
-
+        print(f'{str(component)}/train/', loss_total_epoch)
 
         
 
@@ -207,7 +208,7 @@ class Trainer:
                 metrics_tokenizer, loss_test, intermediate_los  = self.eval_component(self.agent.tokenizer, cfg_tokenizer.batch_num_samples,batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
-                print("evaluation total loss", loss_total_test_epoch)
+                #print("evaluation total loss", loss_total_test_epoch)
                 
             for metrics_name, metrics_value in metrics_tokenizer.items():
                 metrics_tokenizer[metrics_name] = metrics_value / length_test
@@ -229,12 +230,15 @@ class Trainer:
                     
             for batch in testing_data_dataloader:
                 generate_batch= batch.unsqueeze(2)
-                # generate_batch=generate_batch[:,:,:,:,:]
-                #self.start_generation(generate_batch, epoch=epoch)
+                # generate_batch=generate_batch[0:1,:,:,:,:]
+                # generate_batch= self._to_device(generate_batch)
+                
+
+                # metric= GenerationPhase.compute_metrics(self, batch=generate_batch, tokenizer=self.agent.tokenizer, world_model=self.agent.world_model)#, latent_dim=64, horizon=6, obs_time=3 )
                 metrics_world_model, loss_test, intermediate_los = self.eval_component(self.agent.world_model, cfg_world_model.batch_num_samples, generate_batch, loss_total_test_epoch, intermediate_losses, sequence_length=self.cfg.common.sequence_length, tokenizer=self.agent.tokenizer)
                 loss_total_test_epoch = loss_test 
                 intermediate_losses = intermediate_los
-                print("evaluation total loss", loss_total_test_epoch)
+                
 
 
 
@@ -259,44 +263,71 @@ class Trainer:
         mini_batch= math.floor(batch.size(0)/(batch_num_samples))
         counter=0
 
-        for _ in range(mini_batch):
-            batch_testing= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:]
+        # for _ in range(mini_batch):
+        #     batch_testing= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:]
         
-            batch_testing = self._to_device(batch_testing)          
-            losses = component.compute_loss(batch_testing, **kwargs_loss)
-            loss_total_test_epoch += (losses.loss_total.item())
+        #     batch_testing = self._to_device(batch_testing)          
+        #     losses = component.compute_loss(batch_testing, **kwargs_loss)
+        #     loss_total_test_epoch += (losses.loss_total.item())
 
-            for loss_name, loss_value in losses.intermediate_losses.items():
-                intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
+        #     for loss_name, loss_value in losses.intermediate_losses.items():
+        #         intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
             
-            counter= counter + 1
+        #     counter= counter + 1
 
         ######## Pysteps Metrics Calculation
         
-            if str(component) =='tokenizer':
-                rec_frames = generate_reconstructions_with_tokenizer(batch_testing, component)
-                pysteps_metrics = compute_metrics(batch_testing, rec_frames)
+        if str(component) =='tokenizer':
+            for _ in range(mini_batch):
+                batch_testing= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:]
             
-                for metrics_name, metrics_value in pysteps_metrics.items():
-                    if math.isnan(metrics_value):
-                        metrics_value = 0.0
-                    self.accumulated_metrics[metrics_name] += metrics_value
-            
+                batch_testing = self._to_device(batch_testing)          
+                losses = component.compute_loss(batch_testing, **kwargs_loss)
+                loss_total_test_epoch += (losses.loss_total.item())
 
-                intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
-                metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses, **self.accumulated_metrics}
-            else: 
-                intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
-                metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+                for loss_name, loss_value in losses.intermediate_losses.items():
+                    intermediate_losses[f"{str(component)}/eval/{loss_name}"] += loss_value
+                
+                counter= counter + 1
+
+            rec_frames = generate_reconstructions_with_tokenizer(batch_testing, component)
+            pysteps_metrics = compute_metrics(batch_testing, rec_frames)
         
-        # print("evaluation total loss", loss_total_test_epoch)
+            for metrics_name, metrics_value in pysteps_metrics.items():
+                if math.isnan(metrics_value):
+                    metrics_value = 0.0
+                self.accumulated_metrics[metrics_name] += metrics_value
+        
+
+            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses, **self.accumulated_metrics}
+            print(f'{str(component)}/eval/total_loss_epoch', loss_total_test_epoch)
+            
+        if str(component) =='world_model':
+            for _ in range(mini_batch):
+                batch_testing= batch[(counter*batch_num_samples):(counter+1)*(batch_num_samples),:,:,:,:]
+                batch_testing = self._to_device(batch_testing)
+                losses = component.compute_loss(batch_testing, **kwargs_loss)
+                loss_total_test_epoch += (losses.loss_total.item())
+
+                
+                # generation_phase= GenerationPhase(tokenizer=self.agent.tokenizer, world_model=self.agent.world_model, latent_dim=64, horizon=1, obs_time=8)
+                # loss= generation_phase.compute_loss(batch=batch_testing) #, tokenizer=self.agent.tokenizer, world_model=self.agent.world_model, latent_dim=64, horizon=1, obs_time=8)
+                # loss_total_test_epoch += loss 
+
+            intermediate_losses = {k: v  for k, v in intermediate_losses.items()}
+            metrics = {f'{str(component)}/eval/total_loss': loss_total_test_epoch, **intermediate_losses}
+    
+            print(f'{str(component)}/eval/total_loss_epoch', loss_total_test_epoch)
 
         return metrics, loss_total_test_epoch, intermediate_losses
     
 
-    # @torch.no_grad()
-    # def start_generation(self, batch, epoch) -> None:
-        # predicted_observations= GenerationPhase.generate(self, batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=16, horizon=8, obs_time=8)
+    #     @torch.no_grad()
+    #     def start_generation(self, batch, epoch) -> None:
+    #    # predicted_observations= GenerationPhase.generate(self, batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=64, horizon=6, obs_time=3)
+        
+    #         loss1, loss2, loss3 = GenerationPhase.compute_loss(self, batch= batch, tokenizer= self.agent.tokenizer,world_model= self.agent.world_model,latent_dim=64, horizon=6, obs_time=3)
         # observations= batch[7:16,:,:,:]
         # GenerationPhase.show_prediction(observations,predictions, save_dir=self.generation_dir, epoch=epoch)
 
@@ -311,6 +342,7 @@ class Trainer:
                     "optimizer_tokenizer": self.optimizer_tokenizer.state_dict(),
                     "optimizer_world_model": self.optimizer_world_model.state_dict(),
                 }, self.ckpt_dir / f'optimizer_{epoch:02d}.pt')
+
 
     def save_checkpoint(self, epoch: int, save_agent_only: bool) -> None:
         tmp_checkpoint_dir = Path('checkpoints_tmp')
